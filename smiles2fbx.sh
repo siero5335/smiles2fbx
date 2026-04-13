@@ -165,6 +165,7 @@ if not skip_add_hs:
 
 params = AllChem.ETKDGv3()
 embed_status = -1
+used_2d_fallback = False
 for attempt in range(embed_retries):
     params.randomSeed = random_seed + attempt
     embed_status = AllChem.EmbedMolecule(mol, params)
@@ -173,6 +174,7 @@ for attempt in range(embed_retries):
 if embed_status != 0:
     if allow_2d_fallback:
         AllChem.Compute2DCoords(mol)
+        used_2d_fallback = True
         print(
             f"[WARN] 3D embedding failed after {embed_retries} attempt(s); "
             "falling back to 2D coordinates"
@@ -182,7 +184,9 @@ if embed_status != 0:
             f"3D embedding failed for SMILES after {embed_retries} attempt(s): {smiles}"
         )
 
-if AllChem.MMFFHasAllMoleculeParams(mol):
+if used_2d_fallback:
+    print("[WARN] Skipping force-field optimization because 2D fallback was used")
+elif AllChem.MMFFHasAllMoleculeParams(mol):
     optimize_status = AllChem.MMFFOptimizeMolecule(mol)
     if optimize_status == -1:
         raise RuntimeError(f"MMFF optimization failed for SMILES: {smiles}")

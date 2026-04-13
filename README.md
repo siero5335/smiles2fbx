@@ -83,6 +83,8 @@ export BLENDER_PATH="/mnt/c/Program Files/Blender Foundation/Blender 4.2/blender
 
 ## 使い方
 
+### 単発変換
+
 ```bash
 chmod +x smiles2fbx.sh
 ./smiles2fbx.sh <SMILES> <output.fbx> [options]
@@ -93,6 +95,50 @@ chmod +x smiles2fbx.sh
 ```bash
 bash smiles2fbx.sh <SMILES> <output.fbx> [options]
 ```
+
+#### 基本例
+
+```bash
+# Stickモデル（デフォルト：棒のみ、元素色CPK配色）
+./smiles2fbx.sh "c1ccccc1" benzene.fbx
+
+# 水素を省略（スッキリ＆軽量）
+./smiles2fbx.sh "CCO" ethanol.fbx --no-hydrogen
+
+# Ball-and-Stick モデル
+./smiles2fbx.sh "CCO" ethanol.fbx --mode ball-and-stick
+```
+
+#### モノクローム出力
+
+```bash
+# シルバー（デフォルト）
+./smiles2fbx.sh "c1ccccc1" benzene.fbx --mono --no-hydrogen
+
+# ゴールド
+./smiles2fbx.sh "c1ccccc1" benzene.fbx --mono FFD700
+
+# マットブラック
+./smiles2fbx.sh "c1ccccc1" benzene.fbx --mono 1A1A1A --roughness 0.8 --metallic 0.3
+
+# ローズゴールド
+./smiles2fbx.sh "c1ccccc1" benzene.fbx --mono B76E79 --metallic 0.85 --roughness 0.2
+```
+
+#### 見た目の調整
+
+```bash
+# 棒を太くする
+./smiles2fbx.sh "CCO" ethanol.fbx --radius 0.10
+
+# VRChat向けにスケール縮小
+./smiles2fbx.sh "CCO" ethanol.fbx --scale 0.3
+
+# ポリゴンをさらに削減（segments=6）
+./smiles2fbx.sh "CCO" ethanol.fbx --segments 6
+```
+
+#### RDKit オプション例
 
 RDKit のコンフォメーション生成シードを変えたい場合:
 
@@ -112,49 +158,51 @@ RDKit のコンフォメーション生成シードを変えたい場合:
 ./smiles2fbx.sh "CCO" ethanol.fbx --allow-2d-fallback
 ```
 
-### 基本例
+### CSV バッチ変換
 
 ```bash
-# Stickモデル（デフォルト：棒のみ、元素色CPK配色）
-./smiles2fbx.sh "c1ccccc1" benzene.fbx
-
-# 水素を省略（スッキリ＆軽量）
-./smiles2fbx.sh "CCO" ethanol.fbx --no-hydrogen
-
-# Ball-and-Stick モデル
-./smiles2fbx.sh "CCO" ethanol.fbx --mode ball-and-stick
+python3 smiles2fbx_batch.py molecules.csv out_fbx -- --mono --segments 6
 ```
 
-### モノクローム出力（アクセサリ向け）
+CSV は少なくとも `smiles` 列が必要です。`name` と `feature` は任意で、あれば出力ファイル名に使われます。
+
+例:
+
+```csv
+name,smiles,feature
+benzene,c1ccccc1,ring
+ethanol,CCO,alcohol
+```
+
+この例では `out_fbx/benzene__ring.fbx` のような名前で出力されます。
+`feature` が空なら `name.fbx`、`name` も空なら `row_0001.fbx` のような連番名になります。
+
+列名は自動検出しますが、必要なら明示指定できます。
 
 ```bash
-# シルバー（デフォルト）
-./smiles2fbx.sh "c1ccccc1" benzene.fbx --mono --no-hydrogen
-
-# ゴールド
-./smiles2fbx.sh "c1ccccc1" benzene.fbx --mono FFD700
-
-# マットブラック
-./smiles2fbx.sh "c1ccccc1" benzene.fbx --mono 1A1A1A --roughness 0.8 --metallic 0.3
-
-# ローズゴールド
-./smiles2fbx.sh "c1ccccc1" benzene.fbx --mono B76E79 --metallic 0.85 --roughness 0.2
+python3 smiles2fbx_batch.py compounds.csv out_fbx \
+  --name-column 名前 \
+  --smiles-column SMILES \
+  --feature-column 特徴 \
+  -- --mono
 ```
 
-### 見た目の調整
+バッチ実行結果は既定で `out_fbx/batch_results.csv` に保存されます。
 
-```bash
-# 棒を太くする
-./smiles2fbx.sh "CCO" ethanol.fbx --radius 0.10
+#### バッチオプション一覧
 
-# VRChat向けにスケール縮小
-./smiles2fbx.sh "CCO" ethanol.fbx --scale 0.3
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--name-column NAME` | *(auto detect)* | 名前列を明示指定 |
+| `--smiles-column NAME` | *(auto detect)* | SMILES列を明示指定 |
+| `--feature-column NAME` | *(auto detect)* | 特徴列を明示指定 |
+| `--results-csv PATH` | `<outdir>/batch_results.csv` | 結果CSVの出力先 |
+| `--overwrite` | *(off)* | 同名 `.fbx` を上書きする |
+| `--stop-on-error` | *(off)* | 最初の失敗行で中断する |
 
-# ポリゴンをさらに削減（segments=6）
-./smiles2fbx.sh "CCO" ethanol.fbx --segments 6
-```
+`--` 以降の引数は各行の `smiles2fbx.sh` 呼び出しへそのまま渡されます。
 
-## オプション一覧
+## 単発変換オプション一覧
 
 | オプション | デフォルト | 説明 |
 |---|---|---|
@@ -176,25 +224,33 @@ RDKit のコンフォメーション生成シードを変えたい場合:
 
 - `--largest-fragment` は最大の disconnected fragment を 1 つだけ残します。塩や対イオンを落としたいとき向けです
 - `--skip-add-hs` を使うと RDKit 側で暗黙水素を明示化しないため、埋め込みは軽くなりますが、水素表示は基本的に出なくなります
+- `--embed-retries 1` は「再試行なし」で、合計1回だけ埋め込みを試します
 - `--embed-retries` は `--seed` から連番で seed をずらしながら再試行します
 - `--allow-2d-fallback` を使うと、巨大分子などで 3D 埋め込みに失敗した場合でも平面的な 2D 座標で FBX 化を続行します
+- 2D フォールバック時は力場最適化をスキップします
 
 ## ファイル構成
 
-```
+```text
 smiles2fbx/
-├── smiles2fbx.sh     # エントリポイント（シェルスクリプト）
-├── mol_to_fbx.py     # Blender Python スクリプト（molecule JSON→FBX）
+├── smiles2fbx.sh         # 単発変換エントリポイント（シェルスクリプト）
+├── smiles2fbx_batch.py   # CSVバッチ変換スクリプト
+├── mol_to_fbx.py         # Blender Python スクリプト（molecule JSON→FBX）
 └── README.md
 ```
 
 ## 処理フロー
 
-```
+```text
+単発:
 SMILES  ──(RDKit)──▶  molecule JSON  ──(Blender headless)──▶  FBX
                       3D座標生成         bpyでメッシュ構築
                       力場最適化         マテリアル設定
                       結合情報生成       FBXエクスポート
+
+バッチ:
+CSV  ──(smiles2fbx_batch.py)──▶  行ごとに smiles2fbx.sh を呼び出し
+                                  結果を batch_results.csv に記録
 ```
 
 ## VRChat 向けメモ
