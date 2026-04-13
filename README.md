@@ -100,6 +100,18 @@ RDKit のコンフォメーション生成シードを変えたい場合:
 ./smiles2fbx.sh "CCO" ethanol.fbx --seed 12345
 ```
 
+巨大分子向けに埋め込みを軽くしたい場合:
+
+```bash
+./smiles2fbx.sh "CCO" ethanol.fbx --largest-fragment --skip-add-hs --embed-retries 8
+```
+
+3D 埋め込みが失敗したときも平面的な座標で出力したい場合:
+
+```bash
+./smiles2fbx.sh "CCO" ethanol.fbx --allow-2d-fallback
+```
+
 ### 基本例
 
 ```bash
@@ -151,10 +163,21 @@ RDKit のコンフォメーション生成シードを変えたい場合:
 | `--radius F` | `0.06` | 棒の太さ |
 | `--mode MODE` | `stick` | `stick`（棒のみ）または `ball-and-stick` |
 | `--seed N` | `61453` | RDKit の 3D コンフォメーション生成シード |
+| `--embed-retries N` | `1` | RDKit の 3D 埋め込み再試行回数 |
+| `--largest-fragment` | *(off)* | 塩や複数断片を含む入力から最大断片だけを使う |
+| `--skip-add-hs` | *(off)* | RDKit の `AddHs()` を省略して軽量化する |
+| `--allow-2d-fallback` | *(off)* | 3D 埋め込み失敗時に 2D 座標で続行する |
 | `--no-hydrogen` | *(表示)* | 水素原子と結合を非表示 |
 | `--mono [HEX]` | *(CPK配色)* | モノクローム出力。HEX省略時はシルバー `C0C0C0` |
 | `--metallic F` | `0.1` / mono時 `0.9` | PBR Metallic 値（0.0〜1.0） |
 | `--roughness F` | `0.4` / mono時 `0.15` | PBR Roughness 値（0.0〜1.0） |
+
+補足:
+
+- `--largest-fragment` は最大の disconnected fragment を 1 つだけ残します。塩や対イオンを落としたいとき向けです
+- `--skip-add-hs` を使うと RDKit 側で暗黙水素を明示化しないため、埋め込みは軽くなりますが、水素表示は基本的に出なくなります
+- `--embed-retries` は `--seed` から連番で seed をずらしながら再試行します
+- `--allow-2d-fallback` を使うと、巨大分子などで 3D 埋め込みに失敗した場合でも平面的な 2D 座標で FBX 化を続行します
 
 ## ファイル構成
 
@@ -182,6 +205,8 @@ SMILES  ──(RDKit)──▶  molecule JSON  ──(Blender headless)──▶
 - CPK配色（デフォルト）では棒が中点で分割され、各半分が原子の元素色で着色される
 - 芳香族結合は見た目簡略化のため単結合相当の棒として出力される
 - モノクローム時は分割なし（1ボンド=1シリンダー）でさらに軽量
+- 巨大分子では `--largest-fragment --skip-add-hs --no-hydrogen --mono --segments 6` の組み合わせが最も通しやすい
+- それでも 3D 化できない場合は `--allow-2d-fallback` で平面的な出力に逃がせます
 - Unity 側でマテリアルを **lilToon** 等の VRChat 対応シェーダーに差し替え推奨
 - 大きい分子は `--scale 0.3` 程度にしないとワールド内で巨大になる
 - VRChat の Performance Rank を意識する場合、ポリゴン数 10,000 以下を目安に

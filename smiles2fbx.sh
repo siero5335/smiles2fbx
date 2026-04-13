@@ -13,6 +13,10 @@
 #   --radius F     棒の太さ (default: 0.06)
 #   --mode MODE    stick (default) | ball-and-stick
 #   --seed N       RDKit conformer seed (default: 61453)
+#   --embed-retries N  RDKit embedding retry count (default: 1)
+#   --largest-fragment Keep only the largest disconnected fragment
+#   --skip-add-hs  Skip RDKit AddHs before embedding/export
+#   --allow-2d-fallback  Fall back to 2D coordinates if 3D embedding fails
 #   --no-hydrogen  水素を非表示
 #   --mono [HEX]   モノクローム出力 (default: C0C0C0 シルバー)
 #   --metallic F   PBR metallic 0.0-1.0
@@ -62,6 +66,10 @@ FBX_OUT="${2:?Usage: $0 SMILES output.fbx [--segments N] [--scale F]}"
 shift 2
 
 SEED=61453
+EMBED_RETRIES=1
+LARGEST_FRAGMENT=0
+SKIP_ADD_HS=0
+ALLOW_2D_FALLBACK=0
 BLENDER_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -77,6 +85,30 @@ while [[ $# -gt 0 ]]; do
       SEED="${1#--seed=}"
       shift
       ;;
+    --embed-retries)
+      if [[ $# -lt 2 ]]; then
+        echo "--embed-retries requires an integer argument" >&2
+        exit 1
+      fi
+      EMBED_RETRIES="$2"
+      shift 2
+      ;;
+    --embed-retries=*)
+      EMBED_RETRIES="${1#--embed-retries=}"
+      shift
+      ;;
+    --largest-fragment)
+      LARGEST_FRAGMENT=1
+      shift
+      ;;
+    --skip-add-hs)
+      SKIP_ADD_HS=1
+      shift
+      ;;
+    --allow-2d-fallback)
+      ALLOW_2D_FALLBACK=1
+      shift
+      ;;
     *)
       BLENDER_ARGS+=("$1")
       shift
@@ -90,7 +122,7 @@ MOLECULE_JSON="${WORK_DIR}/molecule.json"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 # 1) SMILES → molecule JSON (RDKit)
-python3 - "$SMILES" "$MOLECULE_JSON" "$SEED" <<'PY'
+python3 - "$SMILES" "$MOLECULE_JSON" "$SEED" "$EMBED_RETRIES" "$LARGEST_FRAGMENT" "$SKIP_ADD_HS" "$ALLOW_2D_FALLBACK" <<'PY'
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import json
@@ -99,23 +131,56 @@ import sys
 smiles = sys.argv[1]
 json_path = sys.argv[2]
 seed_arg = sys.argv[3]
+embed_retries_arg = sys.argv[4]
+largest_fragment_arg = sys.argv[5]
+skip_add_hs_arg = sys.argv[6]
+allow_2d_fallback_arg = sys.argv[7]
 
 try:
     random_seed = int(seed_arg)
 except ValueError:
     raise ValueError(f"--seed must be an integer: {seed_arg}")
 
+try:
+    embed_retries = int(embed_retries_arg)
+except ValueError:
+    raise ValueError(f"--embed-retries must be an integer: {embed_retries_arg}")
+if embed_retries < 1:
+    raise ValueError(f"--embed-retries must be >= 1: {embed_retries_arg}")
+
+largest_fragment = largest_fragment_arg == "1"
+skip_add_hs = skip_add_hs_arg == "1"
+allow_2d_fallback = allow_2d_fallback_arg == "1"
+
 mol = Chem.MolFromSmiles(smiles)
 if mol is None:
     raise ValueError(f"Invalid SMILES: {smiles}")
 
-mol = Chem.AddHs(mol)
-params = AllChem.ETKDGv3()
-params.randomSeed = random_seed
+if largest_fragment:
+    fragments = Chem.GetMolFrags(mol, asMols=True)
+    mol = max(fragments, key=lambda frag: frag.GetNumHeavyAtoms())
 
-embed_status = AllChem.EmbedMolecule(mol, params)
+if not skip_add_hs:
+    mol = Chem.AddHs(mol)
+
+params = AllChem.ETKDGv3()
+embed_status = -1
+for attempt in range(embed_retries):
+    params.randomSeed = random_seed + attempt
+    embed_status = AllChem.EmbedMolecule(mol, params)
+    if embed_status == 0:
+        break
 if embed_status != 0:
-    raise RuntimeError(f"3D embedding failed for SMILES: {smiles}")
+    if allow_2d_fallback:
+        AllChem.Compute2DCoords(mol)
+        print(
+            f"[WARN] 3D embedding failed after {embed_retries} attempt(s); "
+            "falling back to 2D coordinates"
+        )
+    else:
+        raise RuntimeError(
+            f"3D embedding failed for SMILES after {embed_retries} attempt(s): {smiles}"
+        )
 
 if AllChem.MMFFHasAllMoleculeParams(mol):
     optimize_status = AllChem.MMFFOptimizeMolecule(mol)
