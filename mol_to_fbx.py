@@ -20,7 +20,20 @@ from mathutils import Vector
 
 
 def fail(message):
-    raise SystemExit(f"[ERROR] {message}")
+    print(f"[ERROR] {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+DEFAULT_CONFIG = {
+    "segments": 8,
+    "scale": 1.0,
+    "bond_radius": 0.06,
+    "mode": "stick",
+    "show_hydrogen": True,
+    "mono_color": None,
+    "metallic": None,
+    "roughness": None,
+}
 
 
 # ---------- CLI args ----------
@@ -32,21 +45,13 @@ else:
 
 data_path = argv[0] if len(argv) > 0 else "molecule.json"
 fbx_path = argv[1] if len(argv) > 1 else "molecule.fbx"
-
-segments = 8
-scale = 1.0
-bond_radius = 0.06
-mode = "stick"
-show_hydrogen = True
-mono_color = None       # None = CPK coloring, set to (r,g,b,a) for monochrome
-metallic = None         # None = use defaults per mode
-roughness = None
+config = dict(DEFAULT_CONFIG)
 
 
 def parse_int(name, value, minimum):
     try:
         parsed = int(value)
-    except ValueError as exc:
+    except ValueError:
         fail(f"{name} must be an integer: {value}")
     if parsed < minimum:
         fail(f"{name} must be >= {minimum}: {value}")
@@ -56,7 +61,7 @@ def parse_int(name, value, minimum):
 def parse_float(name, value, minimum=None, maximum=None, inclusive_min=True):
     try:
         parsed = float(value)
-    except ValueError as exc:
+    except ValueError:
         fail(f"{name} must be a number: {value}")
 
     if minimum is not None:
@@ -81,38 +86,42 @@ def hex_to_rgba(h):
 i = 2
 while i < len(argv):
     if argv[i] == "--segments" and i + 1 < len(argv):
-        segments = parse_int("--segments", argv[i + 1], 3); i += 2
+        config["segments"] = parse_int("--segments", argv[i + 1], 3); i += 2
     elif argv[i] == "--scale" and i + 1 < len(argv):
-        scale = parse_float("--scale", argv[i + 1], minimum=0.0, inclusive_min=False); i += 2
+        config["scale"] = parse_float("--scale", argv[i + 1], minimum=0.0, inclusive_min=False); i += 2
     elif argv[i] == "--radius" and i + 1 < len(argv):
-        bond_radius = parse_float("--radius", argv[i + 1], minimum=0.0, inclusive_min=False); i += 2
+        config["bond_radius"] = parse_float("--radius", argv[i + 1], minimum=0.0, inclusive_min=False); i += 2
     elif argv[i] == "--mode" and i + 1 < len(argv):
-        mode = argv[i + 1]
-        if mode not in {"stick", "ball-and-stick"}:
-            fail(f"--mode must be 'stick' or 'ball-and-stick', got: {mode}")
+        if argv[i + 1] not in {"stick", "ball-and-stick"}:
+            fail(f"--mode must be 'stick' or 'ball-and-stick', got: {argv[i + 1]}")
+        config["mode"] = argv[i + 1]
         i += 2
     elif argv[i] == "--no-hydrogen":
-        show_hydrogen = False; i += 1
+        config["show_hydrogen"] = False; i += 1
     elif argv[i] == "--mono":
         # --mono with optional hex color
         if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
-            mono_color = hex_to_rgba(argv[i + 1]); i += 2
+            config["mono_color"] = hex_to_rgba(argv[i + 1]); i += 2
         else:
-            mono_color = hex_to_rgba("C0C0C0"); i += 1  # silver default
+            config["mono_color"] = hex_to_rgba("C0C0C0"); i += 1  # silver default
     elif argv[i] == "--metallic" and i + 1 < len(argv):
-        metallic = parse_float("--metallic", argv[i + 1], minimum=0.0, maximum=1.0); i += 2
+        config["metallic"] = parse_float("--metallic", argv[i + 1], minimum=0.0, maximum=1.0); i += 2
     elif argv[i] == "--roughness" and i + 1 < len(argv):
-        roughness = parse_float("--roughness", argv[i + 1], minimum=0.0, maximum=1.0); i += 2
+        config["roughness"] = parse_float("--roughness", argv[i + 1], minimum=0.0, maximum=1.0); i += 2
     else:
         fail(f"Unknown or incomplete option: {argv[i]}")
 
 # resolve PBR defaults based on mode
-if mono_color is not None:
-    if metallic is None: metallic = 0.9
-    if roughness is None: roughness = 0.15
+if config["mono_color"] is not None:
+    if config["metallic"] is None:
+        config["metallic"] = 0.9
+    if config["roughness"] is None:
+        config["roughness"] = 0.15
 else:
-    if metallic is None: metallic = 0.1
-    if roughness is None: roughness = 0.4
+    if config["metallic"] is None:
+        config["metallic"] = 0.1
+    if config["roughness"] is None:
+        config["roughness"] = 0.4
 
 # ---------- CPK colors ----------
 ELEMENT_DATA = {
@@ -136,7 +145,7 @@ def load_molecule_data(path):
             payload = json.load(f)
     except FileNotFoundError:
         fail(f"Input file not found: {path}")
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
         fail(f"Input file is not valid JSON: {path}")
 
     atoms = payload.get("atoms")
@@ -188,26 +197,26 @@ def clear_scene():
         bpy.data.materials.remove(mat)
 
 
-def get_or_create_material(name, color):
+def get_or_create_material(name, color, config_values):
     if name in bpy.data.materials:
         return bpy.data.materials[name]
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes["Principled BSDF"]
     bsdf.inputs["Base Color"].default_value = color
-    bsdf.inputs["Roughness"].default_value = roughness
-    bsdf.inputs["Metallic"].default_value = metallic
+    bsdf.inputs["Roughness"].default_value = config_values["roughness"]
+    bsdf.inputs["Metallic"].default_value = config_values["metallic"]
     return mat
 
 
-def get_element_color(element):
+def get_element_color(element, config_values):
     """Return element color, or mono_color if monochrome mode."""
-    if mono_color is not None:
-        return mono_color
+    if config_values["mono_color"] is not None:
+        return config_values["mono_color"]
     return ELEMENT_DATA.get(element, DEFAULT_ELEM)["color"]
 
 
-def make_cylinder(p1, p2, radius, mat, offset=None):
+def make_cylinder(p1, p2, radius, mat, segments, offset=None):
     """Create a cylinder from p1 to p2 with given material."""
     if offset is None:
         offset = Vector((0, 0, 0))
@@ -233,7 +242,7 @@ def make_cylinder(p1, p2, radius, mat, offset=None):
     return obj
 
 
-def compute_bond_offsets(diff, order):
+def compute_bond_offsets(diff, order, scale):
     """Return list of offset vectors for single/double/triple bonds."""
     if order == 1:
         return [Vector((0, 0, 0))]
@@ -255,23 +264,27 @@ def main():
     clear_scene()
     atoms, bonds = load_molecule_data(data_path)
     all_objects = []
+    sphere_ring_count = max(3, config["segments"] // 2)
 
     # -- Atoms (ball-and-stick mode only) --
-    if mode == "ball-and-stick":
+    if config["mode"] == "ball-and-stick":
         for atom in atoms:
-            if not show_hydrogen and atom["element"] == "H":
+            if not config["show_hydrogen"] and atom["element"] == "H":
                 continue
             info = ELEMENT_DATA.get(atom["element"], DEFAULT_ELEM)
-            r = info["radius"] * scale
-            pos = tuple(c * scale for c in atom["pos"])
+            r = info["radius"] * config["scale"]
+            pos = tuple(c * config["scale"] for c in atom["pos"])
             bpy.ops.mesh.primitive_uv_sphere_add(
-                radius=r, segments=segments, ring_count=segments // 2, location=pos
+                radius=r,
+                segments=config["segments"],
+                ring_count=sphere_ring_count,
+                location=pos,
             )
             obj = bpy.context.active_object
             obj.name = f"Atom_{atom['element']}"
-            color = get_element_color(atom["element"])
-            mat_name = "Mat_Mono" if mono_color else f"Mat_{atom['element']}"
-            mat = get_or_create_material(mat_name, color)
+            color = get_element_color(atom["element"], config)
+            mat_name = "Mat_Mono" if config["mono_color"] else f"Mat_{atom['element']}"
+            mat = get_or_create_material(mat_name, color, config)
             obj.data.materials.append(mat)
             bpy.ops.object.shade_smooth()
             all_objects.append(obj)
@@ -281,36 +294,36 @@ def main():
         elem1 = atoms[bond["a1"]]["element"]
         elem2 = atoms[bond["a2"]]["element"]
 
-        if not show_hydrogen and (elem1 == "H" or elem2 == "H"):
+        if not config["show_hydrogen"] and (elem1 == "H" or elem2 == "H"):
             continue
 
-        p1 = Vector(tuple(c * scale for c in atoms[bond["a1"]]["pos"]))
-        p2 = Vector(tuple(c * scale for c in atoms[bond["a2"]]["pos"]))
+        p1 = Vector(tuple(c * config["scale"] for c in atoms[bond["a1"]]["pos"]))
+        p2 = Vector(tuple(c * config["scale"] for c in atoms[bond["a2"]]["pos"]))
         mid = (p1 + p2) / 2
         diff = p2 - p1
-        offsets = compute_bond_offsets(diff, bond["order"])
-        r = bond_radius * scale
+        offsets = compute_bond_offsets(diff, bond["order"], config["scale"])
+        r = config["bond_radius"] * config["scale"]
 
-        if mono_color is not None:
+        if config["mono_color"] is not None:
             # monochrome: single cylinder per bond (no midpoint split)
-            mat = get_or_create_material("Mat_Mono", mono_color)
+            mat = get_or_create_material("Mat_Mono", config["mono_color"], config)
             for off in offsets:
-                obj = make_cylinder(p1, p2, r, mat, off)
+                obj = make_cylinder(p1, p2, r, mat, config["segments"], off)
                 if obj:
                     obj.name = "Bond"
                     all_objects.append(obj)
         else:
             # CPK half-bond coloring
-            color1 = get_element_color(elem1)
-            color2 = get_element_color(elem2)
-            mat1 = get_or_create_material(f"Mat_{elem1}", color1)
-            mat2 = get_or_create_material(f"Mat_{elem2}", color2)
+            color1 = get_element_color(elem1, config)
+            color2 = get_element_color(elem2, config)
+            mat1 = get_or_create_material(f"Mat_{elem1}", color1, config)
+            mat2 = get_or_create_material(f"Mat_{elem2}", color2, config)
             for off in offsets:
-                obj = make_cylinder(p1, mid, r, mat1, off)
+                obj = make_cylinder(p1, mid, r, mat1, config["segments"], off)
                 if obj:
                     obj.name = f"Bond_{elem1}"
                     all_objects.append(obj)
-                obj = make_cylinder(mid, p2, r, mat2, off)
+                obj = make_cylinder(mid, p2, r, mat2, config["segments"], off)
                 if obj:
                     obj.name = f"Bond_{elem2}"
                     all_objects.append(obj)

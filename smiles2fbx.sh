@@ -12,6 +12,7 @@
 #   --scale F      全体スケール (default: 1.0)
 #   --radius F     棒の太さ (default: 0.06)
 #   --mode MODE    stick (default) | ball-and-stick
+#   --seed N       RDKit conformer seed (default: 61453)
 #   --no-hydrogen  水素を非表示
 #   --mono [HEX]   モノクローム出力 (default: C0C0C0 シルバー)
 #   --metallic F   PBR metallic 0.0-1.0
@@ -60,13 +61,36 @@ SMILES="${1:?Usage: $0 SMILES output.fbx [--segments N] [--scale F]}"
 FBX_OUT="${2:?Usage: $0 SMILES output.fbx [--segments N] [--scale F]}"
 shift 2
 
+SEED=61453
+BLENDER_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --seed)
+      if [[ $# -lt 2 ]]; then
+        echo "--seed requires an integer argument" >&2
+        exit 1
+      fi
+      SEED="$2"
+      shift 2
+      ;;
+    --seed=*)
+      SEED="${1#--seed=}"
+      shift
+      ;;
+    *)
+      BLENDER_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
 # temp dir
-TMPDIR="$(mktemp -d)"
-MOLECULE_JSON="${TMPDIR}/molecule.json"
-trap 'rm -rf "$TMPDIR"' EXIT
+WORK_DIR="$(mktemp -d)"
+MOLECULE_JSON="${WORK_DIR}/molecule.json"
+trap 'rm -rf "$WORK_DIR"' EXIT
 
 # 1) SMILES → molecule JSON (RDKit)
-python3 - "$SMILES" "$MOLECULE_JSON" <<'PY'
+python3 - "$SMILES" "$MOLECULE_JSON" "$SEED" <<'PY'
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import json
@@ -74,6 +98,12 @@ import sys
 
 smiles = sys.argv[1]
 json_path = sys.argv[2]
+seed_arg = sys.argv[3]
+
+try:
+    random_seed = int(seed_arg)
+except ValueError:
+    raise ValueError(f"--seed must be an integer: {seed_arg}")
 
 mol = Chem.MolFromSmiles(smiles)
 if mol is None:
@@ -81,7 +111,7 @@ if mol is None:
 
 mol = Chem.AddHs(mol)
 params = AllChem.ETKDGv3()
-params.randomSeed = 0xF00D
+params.randomSeed = random_seed
 
 embed_status = AllChem.EmbedMolecule(mol, params)
 if embed_status != 0:
@@ -113,6 +143,8 @@ for bond in mol.GetBonds():
         {
             "a1": bond.GetBeginAtomIdx(),
             "a2": bond.GetEndAtomIdx(),
+            # Aromatic bonds arrive as 1.5 in RDKit. We intentionally collapse
+            # them to a single stick for this simplified mesh representation.
             "order": int(bond.GetBondTypeAsDouble()),
         }
     )
@@ -125,8 +157,19 @@ PY
 
 # 2) Molecule JSON → FBX (Blender headless)
 echo "[INFO] Using Blender: ${BLENDER}"
+BLENDER_COMMAND=(
+  "$BLENDER"
+  --background
+  --python "${SCRIPT_DIR}/mol_to_fbx.py"
+  --
+  "$MOLECULE_JSON"
+  "$FBX_OUT"
+)
+if [[ ${#BLENDER_ARGS[@]} -gt 0 ]]; then
+  BLENDER_COMMAND+=("${BLENDER_ARGS[@]}")
+fi
 set +e
-"$BLENDER" --background --python "${SCRIPT_DIR}/mol_to_fbx.py" -- "$MOLECULE_JSON" "$FBX_OUT" "$@"
+"${BLENDER_COMMAND[@]}"
 blender_status=$?
 set -e
 

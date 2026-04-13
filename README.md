@@ -1,13 +1,21 @@
 # smiles2fbx
 
-SMILES → FBX ワンライナー変換ツール（VRChat / Unity用）
+SMILES → FBX ワンライナー変換ツール（Unity想定）
 
-OpenBabel不要・Blenderアドオン不要。RDKitで3D座標と結合情報を生成し、Blenderの標準bpy APIでメッシュを構築してFBXをエクスポートします。
+OpenBabel不要・Blenderアドオン不要。RDKitで3D座標と結合情報を生成し、Blenderの標準bpy APIでメッシュを構築してFBXをエクスポートします。化学構造の最適化は考慮していません。
 
 ## 必要環境
 
-- **Python 3.8+** と **RDKit**
-- **Blender 3.x / 4.x**（コマンドラインから呼び出せること）
+- **Python 3.8+** , **RDKit**
+- **Blender 4.x**（コマンドラインから呼び出せること, 3.x未確認）
+
+## 動作確認状況
+
+- **確認済み**: macOS + Python 3 + RDKit + Blender 4.5 LTS
+- **未確認**: Linux / Windows / WSL / Git Bash
+
+Linux や Windows 系でも動く想定ですが、このリポジトリでは現時点で macOS 以外の実機確認はしていません。
+そのため、他環境では Blender の headless 起動、RDKit の導入方法、シェルからの `bash` 実行方法を個別に調整する必要がある可能性があります。
 
 ### インストール例
 
@@ -46,15 +54,50 @@ export BLENDER_PATH=/Applications/Blender.app/Contents/MacOS/Blender
 # Linux (snap)
 export BLENDER_PATH=/snap/bin/blender
 
+# Linux (deb/rpm など)
+export BLENDER_PATH=/usr/bin/blender
+
 # Windows (WSL / Git Bash)
 export BLENDER_PATH="/mnt/c/Program Files/Blender Foundation/Blender 4.2/blender.exe"
 ```
+
+### OS 別メモ
+
+**macOS**
+
+- `~/.zshrc` に `BLENDER_PATH` または `PATH` を設定すればそのまま使えます
+- Blender headless が不安定な場合は LTS 版の利用を推奨します
+
+**Linux**
+
+- `python3`、RDKit、Blender CLI が入っていれば動く想定です
+- Blender の場所は `/usr/bin/blender`、`/snap/bin/blender` など環境差があります
+- この環境は未実機確認です
+
+**Windows (WSL / Git Bash)**
+
+- このスクリプトは `sh` / `bash` 前提なので、PowerShell や `cmd.exe` 単体ではなく WSL か Git Bash での利用を想定しています
+- Blender 本体は Windows 側に入れ、`BLENDER_PATH` で `.exe` を指す運用を想定しています
+- パスに空白が入るため、`BLENDER_PATH` は必ずクォートしてください
+- この環境は未実機確認です
 
 ## 使い方
 
 ```bash
 chmod +x smiles2fbx.sh
 ./smiles2fbx.sh <SMILES> <output.fbx> [options]
+```
+
+`bash` で直接呼ぶ場合:
+
+```bash
+bash smiles2fbx.sh <SMILES> <output.fbx> [options]
+```
+
+RDKit のコンフォメーション生成シードを変えたい場合:
+
+```bash
+./smiles2fbx.sh "CCO" ethanol.fbx --seed 12345
 ```
 
 ### 基本例
@@ -107,6 +150,7 @@ chmod +x smiles2fbx.sh
 | `--scale F` | `1.0` | 全体スケール |
 | `--radius F` | `0.06` | 棒の太さ |
 | `--mode MODE` | `stick` | `stick`（棒のみ）または `ball-and-stick` |
+| `--seed N` | `61453` | RDKit の 3D コンフォメーション生成シード |
 | `--no-hydrogen` | *(表示)* | 水素原子と結合を非表示 |
 | `--mono [HEX]` | *(CPK配色)* | モノクローム出力。HEX省略時はシルバー `C0C0C0` |
 | `--metallic F` | `0.1` / mono時 `0.9` | PBR Metallic 値（0.0〜1.0） |
@@ -136,6 +180,7 @@ SMILES  ──(RDKit)──▶  molecule JSON  ──(Blender headless)──▶
 - **`--no-hydrogen`** で水素を消すとさらに軽量化
 - **`--segments 6`** まで下げても見た目は十分
 - CPK配色（デフォルト）では棒が中点で分割され、各半分が原子の元素色で着色される
+- 芳香族結合は見た目簡略化のため単結合相当の棒として出力される
 - モノクローム時は分割なし（1ボンド=1シリンダー）でさらに軽量
 - Unity 側でマテリアルを **lilToon** 等の VRChat 対応シェーダーに差し替え推奨
 - 大きい分子は `--scale 0.3` 程度にしないとワールド内で巨大になる
@@ -166,6 +211,9 @@ https://www.blender.org/download/lts/
 
 **`ModuleNotFoundError: No module named 'rdkit'`**
 → `pip install rdkit` または `conda install -c conda-forge rdkit`
+
+**Windows で `.sh` がそのまま実行できない**
+→ WSL または Git Bash から `bash smiles2fbx.sh ...` で実行してください
 
 **Invalid SMILES エラー**
 → SMILES 文字列をクォートで囲んでいるか確認（シェルが特殊文字を解釈する場合がある）
