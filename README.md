@@ -128,7 +128,7 @@ bash smiles2fbx.sh <SMILES> <output.fbx> [options]
 #### 見た目の調整
 
 ```bash
-# 棒を太くする
+# 棒を細くする
 ./smiles2fbx.sh "CCO" ethanol.fbx --radius 0.10
 
 # VRChat向けにスケール縮小
@@ -208,7 +208,7 @@ python3 smiles2fbx_batch.py compounds.csv out_fbx \
 |---|---|---|
 | `--segments N` | `8` | シリンダー/球の分割数。低いほど軽量 |
 | `--scale F` | `1.0` | 全体スケール |
-| `--radius F` | `0.06` | 棒の太さ |
+| `--radius F` | `0.2` | 棒の太さ |
 | `--mode MODE` | `stick` | `stick`（棒のみ）または `ball-and-stick` |
 | `--seed N` | `61453` | RDKit の 3D コンフォメーション生成シード |
 | `--embed-retries N` | `1` | RDKit の 3D 埋め込み再試行回数 |

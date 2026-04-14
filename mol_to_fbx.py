@@ -5,7 +5,7 @@ Usage: blender --background --python mol_to_fbx.py -- input.json output.fbx [opt
 Options:
   --segments N     cylinder vertex count (default: 8)
   --scale F        global scale (default: 1.0)
-  --radius F       stick radius (default: 0.06)
+  --radius F       stick radius (default: 0.2)
   --mode MODE      stick (default) | ball-and-stick
   --no-hydrogen    hide hydrogen atoms and their bonds
   --mono [HEX]     monochrome output (default: C0C0C0 silver)
@@ -27,7 +27,7 @@ def fail(message):
 DEFAULT_CONFIG = {
     "segments": 8,
     "scale": 1.0,
-    "bond_radius": 0.06,
+    "bond_radius": 0.2,
     "mode": "stick",
     "show_hydrogen": True,
     "mono_color": None,

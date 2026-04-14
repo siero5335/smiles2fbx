@@ -10,7 +10,7 @@
 # Options (Blender側に渡される):
 #   --segments N   シリンダーの分割数 (default: 8)
 #   --scale F      全体スケール (default: 1.0)
-#   --radius F     棒の太さ (default: 0.06)
+#   --radius F     棒の太さ (default: 0.2)
 #   --mode MODE    stick (default) | ball-and-stick
 #   --seed N       RDKit conformer seed (default: 61453)
 #   --embed-retries N  RDKit embedding retry count (default: 1)
